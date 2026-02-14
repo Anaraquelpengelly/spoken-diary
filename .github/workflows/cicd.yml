@@ -17,8 +17,8 @@ jobs:
           version: "0.6.2"  # Optional: pin version or remove to get latest
 
       - name: Set up Python
-        # FIX: Explicitly install Python 3.11
-        run: uv python install 3.11
+        # FIX: Explicitly install Python 3.12
+        run: uv python install 3.12
 
       - name: Install dependencies
         # FIX: Use uv sync to install from pyproject.toml with dev dependencies
