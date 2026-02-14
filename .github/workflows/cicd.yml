@@ -41,7 +41,7 @@ jobs:
 
       - name: Deploy to Railway
         # Removed explicit service name to let Railway auto-detect from token context
-        run: railway up --detach
-        env:
+        run: railway up --service=f1d09b64-f9f1-4b9e-903d-265df3b7a6f2 --detach
+	env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
