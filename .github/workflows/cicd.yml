@@ -3,8 +3,6 @@ name: CI/CD Pipeline
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   test:
@@ -15,30 +13,35 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.2"  # Optional: pin version or remove to get latest
 
       - name: Set up Python
-        run: uv python install 3.12
+        # FIX: Explicitly install Python 3.11
+        run: uv python install 3.11
 
       - name: Install dependencies
-        run: uv pip install --system -r requirements.txt || uv pip install --system .[dev]
+        # FIX: Use uv sync to install from pyproject.toml with dev dependencies
+        run: uv sync --all-extras --dev
 
       - name: Run tests
-        # We use 'python -m pytest' to fix path issues automatically
+        # FIX: Ensure tests run with the uv environment
         run: uv run python -m pytest tests
 
   deploy:
     needs: test
-    if: github.ref == 'refs/heads/main'  # Only deploy from main branch
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install Railway CLI
-        run: npm i -g @railway/cli
+        run: npm install -g @railway/cli
 
       - name: Deploy to Railway
-        run: railway up --service=spoken-diary --detach
+        # Removed explicit service name to let Railway auto-detect from token context
+        run: railway up --detach
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
