@@ -40,8 +40,7 @@ jobs:
         run: npm install -g @railway/cli
 
       - name: Deploy to Railway
-        # Removed explicit service name to let Railway auto-detect from token context
-        run: railway up --service=spoken-diary  --detach
-	env:
+        run: railway up --service=spoken-diary --detach
+        env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
 
