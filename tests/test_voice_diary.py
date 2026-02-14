@@ -1,13 +1,22 @@
-import pytest
-from unittest.mock import MagicMock, mock_open
+import os
+from unittest.mock import MagicMock
 import sys
 
-# Mock imports BEFORE importing the main app
-# This prevents the script from trying to connect to real services on import
+# --- CRITICAL FIX: Set env vars BEFORE importing the app ---
+os.environ["DEEPGRAM_API_KEY"] = "fake_key"
+os.environ["PCLOUD_USERNAME"] = "fake_user"
+os.environ["PCLOUD_PASSWORD"] = "fake_pass"
+
+# Mock dependencies
 sys.modules["gradio"] = MagicMock()
 sys.modules["pcloud"] = MagicMock()
 sys.modules["deepgram"] = MagicMock()
-sys.modules["pcloud_sdk"] = MagicMock() # Just in case
+sys.modules["pcloud_sdk"] = MagicMock()
+
+# NOW import the app
+import pytest
+import voice_diary_app
+
 
 # Import the module under test
 # We use 'from' imports inside the test functions or setup to ensure mocks are ready
