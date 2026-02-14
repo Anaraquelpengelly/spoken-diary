@@ -1,5 +1,5 @@
 import os
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, mock_open
 import sys
 
 # --- CRITICAL FIX: Set env vars BEFORE importing the app ---
