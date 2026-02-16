@@ -95,13 +95,14 @@ def test_transcribe_audio_success(mock_deepgram, mocker):
     mock_file = mocker.patch("builtins.open", mock_open(read_data=b"fake_audio_data"))
     mocker.patch("os.path.getsize", return_value=1024)
 
-    # Mock Deepgram response
+    # Mock Deepgram response (includes metadata.duration for usage tracking)
     mock_response = {
         "results": {
             "channels": [
                 {"alternatives": [{"transcript": "Hello world this is a test"}]}
             ]
-        }
+        },
+        "metadata": {"duration": 5.5},
     }
     mock_deepgram.transcribe_file.return_value = mock_response
 

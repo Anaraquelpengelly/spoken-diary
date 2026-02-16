@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from datetime import datetime
 
 import gradio as gr
@@ -59,6 +60,22 @@ except Exception as e:
     logger.critical(f"❌ Client Initialization Failed: {e}")
     sys.exit(1)
 
+# --- USAGE TRACKING ---
+usage_stats = {
+    "session_start": datetime.now(),
+    "transcriptions": {
+        "count": 0,
+        "total_audio_minutes": 0.0,
+        "total_api_latency_ms": 0.0,
+        "errors": 0,
+        "last_transcription": None,
+    },
+    "saves": {"count": 0, "errors": 0, "last_save": None},
+    "deepgram": {"estimated_cost_usd": 0.0, "total_api_calls": 0},
+    "errors": [],
+}
+logger.info("📊 Usage tracking initialized")
+
 
 # --- 5. HELPER FUNCTIONS ---
 def ensure_diary_folder():
@@ -115,14 +132,45 @@ def transcribe_audio(audio_path):
         )
 
         logger.info("📡 Sending request to Deepgram API...")
-        # Standard v3.4+ REST call
+        start_time = time.perf_counter()
         response = deepgram.listen.rest.v("1").transcribe_file(payload, options)
+        latency_ms = (time.perf_counter() - start_time) * 1000
 
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-        logger.success(f"✅ Transcription complete ({len(transcript)} chars)")
+
+        # Extract duration and calculate cost (nova-2: $0.0043/min)
+        try:
+            duration_seconds = response["metadata"]["duration"]
+        except (KeyError, TypeError):
+            duration_seconds = 0
+        duration_minutes = duration_seconds / 60
+        cost = duration_minutes * 0.0043
+
+        # Update usage stats
+        usage_stats["transcriptions"]["count"] += 1
+        usage_stats["transcriptions"]["total_audio_minutes"] += duration_minutes
+        usage_stats["transcriptions"]["total_api_latency_ms"] += latency_ms
+        usage_stats["transcriptions"]["last_transcription"] = (
+            datetime.now().isoformat()
+        )
+        usage_stats["deepgram"]["total_api_calls"] += 1
+        usage_stats["deepgram"]["estimated_cost_usd"] += cost
+
+        logger.success(
+            f"✅ Transcription complete ({len(transcript)} chars) | "
+            f"{duration_minutes:.2f}min | {latency_ms:.0f}ms | ${cost:.4f}"
+        )
         return transcript
 
     except Exception as e:
+        usage_stats["transcriptions"]["errors"] += 1
+        usage_stats["errors"].append(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "type": "transcription",
+                "error": str(e),
+            }
+        )
         logger.exception("❌ Transcription Failed")
         return f"Transcription error: {str(e)}"
 
@@ -139,6 +187,7 @@ def save_transcript(text):
         folder_id = ensure_diary_folder()
         if not folder_id:
             logger.error("❌ Aborting save: Could not access Diary folder")
+            usage_stats["saves"]["errors"] += 1
             return "Error: Could not access Diary folder"
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -160,12 +209,59 @@ def save_transcript(text):
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
+        usage_stats["saves"]["count"] += 1
+        usage_stats["saves"]["last_save"] = datetime.now().isoformat()
         logger.success(f"✅ Saved successfully: {filename}")
         return f"Saved: {filename}"
 
     except Exception as e:
+        usage_stats["saves"]["errors"] += 1
+        usage_stats["errors"].append(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "type": "save",
+                "error": str(e),
+            }
+        )
         logger.exception("❌ Save Operation Failed")
         return f"Save error: {str(e)}"
+
+
+def get_usage_stats():
+    """Get formatted usage statistics for display"""
+    uptime = datetime.now() - usage_stats["session_start"]
+    count = usage_stats["transcriptions"]["count"]
+    avg_latency = (
+        usage_stats["transcriptions"]["total_api_latency_ms"] / count
+        if count > 0
+        else 0
+    )
+
+    return {
+        "session": {
+            "started": usage_stats["session_start"].strftime("%Y-%m-%d %H:%M:%S"),
+            "uptime": str(uptime).split(".")[0],
+        },
+        "transcriptions": {
+            "total": count,
+            "audio_minutes": round(
+                usage_stats["transcriptions"]["total_audio_minutes"], 2
+            ),
+            "avg_api_latency_ms": round(avg_latency, 2),
+            "errors": usage_stats["transcriptions"]["errors"],
+            "last": usage_stats["transcriptions"]["last_transcription"],
+        },
+        "deepgram": {
+            "api_calls": usage_stats["deepgram"]["total_api_calls"],
+            "estimated_cost_usd": f"${usage_stats['deepgram']['estimated_cost_usd']:.4f}",
+        },
+        "saves": {
+            "successful": usage_stats["saves"]["count"],
+            "errors": usage_stats["saves"]["errors"],
+            "last": usage_stats["saves"]["last_save"],
+        },
+        "recent_errors": usage_stats["errors"][-5:],
+    }
 
 
 # --- 6. GRADIO APP ---
@@ -174,23 +270,34 @@ logger.info("🎨 Building Gradio Interface...")
 with gr.Blocks(title="Voice Diary", theme=gr.themes.Soft()) as app:
     gr.Markdown("# 🎙️ Voice Diary")
 
-    with gr.Row():
-        # type="filepath" ensures we get a path string, not raw bytes
-        audio_input = gr.Audio(sources=["microphone"], type="filepath", label="Record")
-        transcribe_btn = gr.Button("Transcribe", variant="primary")
+    with gr.Tabs():
+        with gr.Tab("Diary"):
+            audio_input = gr.Audio(
+                sources=["microphone"], type="filepath", label="Record & Transcribe"
+            )
 
-    transcript_box = gr.Textbox(label="Transcript", lines=5, interactive=True)
+            transcript_box = gr.Textbox(
+                label="Transcript", lines=5, interactive=True
+            )
 
-    with gr.Row():
-        save_btn = gr.Button("Save to pCloud", variant="secondary")
-        status_msg = gr.Textbox(label="Status", interactive=False)
+            with gr.Row():
+                save_btn = gr.Button("Save to pCloud", variant="secondary")
+                status_msg = gr.Textbox(label="Status", interactive=False)
 
-    # Event Listeners
-    transcribe_btn.click(
-        fn=transcribe_audio, inputs=audio_input, outputs=transcript_box
-    )
+            audio_input.stop_recording(
+                fn=transcribe_audio, inputs=audio_input, outputs=transcript_box
+            )
+            save_btn.click(
+                fn=save_transcript, inputs=transcript_box, outputs=status_msg
+            )
 
-    save_btn.click(fn=save_transcript, inputs=transcript_box, outputs=status_msg)
+        with gr.Tab("Stats"):
+            gr.Markdown("## 📊 Usage Statistics")
+            stats_display = gr.JSON(label="Statistics", show_label=False)
+            refresh_btn = gr.Button("Refresh Stats", variant="secondary")
+
+            app.load(fn=get_usage_stats, outputs=stats_display)
+            refresh_btn.click(fn=get_usage_stats, outputs=stats_display)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
