@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, mock_open
 os.environ["DEEPGRAM_API_KEY"] = "fake_key"
 os.environ["PCLOUD_USERNAME"] = "fake_user"
 os.environ["PCLOUD_PASSWORD"] = "fake_pass"
+os.environ["APP_USERNAME"] = "admin"
+os.environ["APP_PASSWORD"] = "secret"
 
 # Mock dependencies
 sys.modules["gradio"] = MagicMock()
