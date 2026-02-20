@@ -129,6 +129,7 @@ def transcribe_audio(audio_path):
             model="nova-2",
             smart_format=True,
             language="en",
+            diarize=True,
         )
 
         logger.info("📡 Sending request to Deepgram API...")
