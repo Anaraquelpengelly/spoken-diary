@@ -300,7 +300,9 @@ with gr.Blocks(title="Voice Diary", theme=gr.themes.Soft()) as app:
     with gr.Tabs():
         with gr.Tab("Diary"):
             audio_input = gr.Audio(
-                sources=["microphone"], type="filepath", label="Record & Transcribe"
+                sources=["microphone", "upload"],
+                type="filepath",
+                label="Record or Upload Audio",
             )
 
             transcript_box = gr.Textbox(
