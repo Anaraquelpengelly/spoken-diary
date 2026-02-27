@@ -76,6 +76,11 @@ usage_stats = {
 }
 logger.info("📊 Usage tracking initialized")
 
+# --- LOCAL BACKUP DIR ---
+BACKUP_DIR = "/tmp/diary_backups"
+os.makedirs(BACKUP_DIR, exist_ok=True)
+logger.info(f"📁 Local backup directory: {BACKUP_DIR}")
+
 
 # --- 5. HELPER FUNCTIONS ---
 def ensure_diary_folder():
@@ -161,6 +166,8 @@ def transcribe_audio(audio_path):
             f"✅ Transcription complete ({len(transcript)} chars) | "
             f"{duration_minutes:.2f}min | {latency_ms:.0f}ms | ${cost:.4f}"
         )
+        if transcript:
+            logger.info(f"📝 Transcript text: {transcript}")
         return transcript
 
     except Exception as e:
@@ -193,11 +200,15 @@ def save_transcript(text):
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"{timestamp}_diary.txt"
+        backup_path = os.path.join(BACKUP_DIR, filename)
         temp_path = f"/tmp/{filename}"
 
-        # Ensure /tmp exists
-        os.makedirs("/tmp", exist_ok=True)
+        # Write local backup first (survives pCloud failures)
+        with open(backup_path, "w", encoding="utf-8") as f:
+            f.write(text)
+        logger.info(f"💾 Local backup saved: {backup_path}")
 
+        # Write temp file for pCloud upload
         with open(temp_path, "w", encoding="utf-8") as f:
             f.write(text)
 
@@ -206,9 +217,14 @@ def save_transcript(text):
         # Method: uploadfile(files=[path], folderid=id) - Standard pcloud syntax
         pc.uploadfile(files=[temp_path], folderid=folder_id)
 
-        # Cleanup
+        # Cleanup temp file
         if os.path.exists(temp_path):
             os.remove(temp_path)
+
+        # Remove backup only after successful pCloud upload
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
+            logger.debug(f"🗑️ Backup cleaned up after successful upload: {filename}")
 
         usage_stats["saves"]["count"] += 1
         usage_stats["saves"]["last_save"] = datetime.now().isoformat()
@@ -226,6 +242,16 @@ def save_transcript(text):
         )
         logger.exception("❌ Save Operation Failed")
         return f"Save error: {str(e)}"
+
+
+def transcribe_and_save(audio_path):
+    """Transcribe audio and auto-save to pCloud"""
+    transcript = transcribe_audio(audio_path)
+    if transcript and not transcript.startswith(("No audio", "Transcription error")):
+        save_result = save_transcript(transcript)
+    else:
+        save_result = ""
+    return transcript, save_result
 
 
 def get_usage_stats():
@@ -286,7 +312,9 @@ with gr.Blocks(title="Voice Diary", theme=gr.themes.Soft()) as app:
                 status_msg = gr.Textbox(label="Status", interactive=False)
 
             audio_input.stop_recording(
-                fn=transcribe_audio, inputs=audio_input, outputs=transcript_box
+                fn=transcribe_and_save,
+                inputs=audio_input,
+                outputs=[transcript_box, status_msg],
             )
             save_btn.click(
                 fn=save_transcript, inputs=transcript_box, outputs=status_msg
